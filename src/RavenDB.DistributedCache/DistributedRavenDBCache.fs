@@ -3,14 +3,15 @@
 open Microsoft.Extensions.Caching.Distributed
 open Microsoft.Extensions.Logging
 open Microsoft.Extensions.Options
+open Raven.Client.Documents
 open Raven.Client.Documents.Indexes
 open Raven.Client.Documents.Linq
 open Raven.Client.Documents.Operations.Indexes
 open Raven.Client.Documents.Session
 open System
 open System.Collections.Generic
-open System.Linq
 open System.Text
+open System.Threading
 open System.Threading.Tasks
 
 /// Persistence object for a cache entry
@@ -62,8 +63,8 @@ type DistributedRavenDBCache(options : IOptions<DistributedRavenDBCacheOptions>,
   let collId = sprintf "%s/%s" collName
 
   /// Save changes if any have occurred
-  let saveChanges (sess : IAsyncDocumentSession) =
-    match sess.Advanced.HasChanges with true -> (sess.SaveChangesAsync >> await') () | false -> ()
+  let saveChanges (sess : IAsyncDocumentSession) ct =
+    match sess.Advanced.HasChanges with true -> sess.SaveChangesAsync ct |> await' | false -> ()
 
   /// Debug message
   let dbug text =
@@ -89,21 +90,22 @@ type DistributedRavenDBCache(options : IOptions<DistributedRavenDBCacheOptions>,
         environmentChecked <- true
 
   /// Remove entries from the cache that are expired
-  let purgeExpired (sess : IAsyncDocumentSession) =
+  let purgeExpired (sess : IAsyncDocumentSession) ct =
     let tix = DateTime.UtcNow.Ticks - 1L
     dbug <| fun () -> sprintf "Purging expired entries (<= %i)" tix
     sess.Query<CacheEntry>(expIndex)
       .Where(fun e -> e.ExpiresAt < tix)
-      .ToList()
+      .ToListAsync ct
+    |> await
     |> Seq.iter (fun e -> sess.Delete e.Id)
-    (sess.SaveChangesAsync >> await') ()
   
   /// Calculate ticks from now for the given number of seconds
   let ticksFromNow seconds = DateTime.UtcNow.Ticks + int64 (seconds * 10000000)
 
   /// Get the cache entry specified
-  let getCacheEntry (key : string) (sess : IAsyncDocumentSession) =
-    let entry = (collId >> sess.LoadAsync<CacheEntry> >> await >> box >> Option.ofObj) key
+  let getCacheEntry (key : string) (sess : IAsyncDocumentSession) ct =
+    let entryId = collId key
+    let entry = sess.LoadAsync<CacheEntry> (entryId, ct) |> (await >> box >> Option.ofObj)
     match entry with Some e -> (unbox<CacheEntry> >> Some) e | None -> None
 
   /// Refresh (update expiration based on sliding expiration) the cache entry specified
@@ -113,42 +115,42 @@ type DistributedRavenDBCache(options : IOptions<DistributedRavenDBCacheOptions>,
     | seconds -> sess.Advanced.Patch (entry.Id, (fun e -> e.ExpiresAt), ticksFromNow seconds)
 
   /// Get the payload for the cache entry
-  let getEntry key =
+  let getEntry key ct =
     checkEnvironment ()
     use sess = newSession ()
-    purgeExpired sess
-    match getCacheEntry key sess with
+    purgeExpired sess ct
+    match getCacheEntry key sess ct with
     | Some e ->
         dbug <| fun () -> sprintf "Cache key %s found" key
         refreshCacheEntry e sess
-        saveChanges sess
+        saveChanges sess ct
         UTF8Encoding.UTF8.GetBytes e.Payload
     | None ->
         dbug <| fun () -> sprintf "Cache key %s not found" key
-        saveChanges sess
+        saveChanges sess ct
         null
   
   /// Update the sliding expiration for a cache entry
-  let refreshEntry key =
+  let refreshEntry key ct =
     checkEnvironment ()
     use sess = newSession ()
-    match getCacheEntry key sess with Some e ->  refreshCacheEntry e sess | None -> ()
-    purgeExpired sess
-    saveChanges sess
+    match getCacheEntry key sess ct with Some e ->  refreshCacheEntry e sess | None -> ()
+    purgeExpired sess ct
+    saveChanges sess ct
   
   /// Remove the specified cache entry
-  let removeEntry (key : string) =
+  let removeEntry (key : string) ct =
     checkEnvironment ()
     use sess = newSession ()
     (collId >> sess.Delete) key
-    purgeExpired sess
-    saveChanges sess
+    purgeExpired sess ct
+    saveChanges sess ct
   
   /// Set the value of a cache entry
-  let setEntry key payload (options : DistributedCacheEntryOptions) =
+  let setEntry key payload (options : DistributedCacheEntryOptions) ct =
     checkEnvironment ()
     use sess = newSession ()
-    purgeExpired sess
+    purgeExpired sess ct
     let addExpiration entry = 
       match true with
       | _ when options.SlidingExpiration.HasValue ->
@@ -166,20 +168,20 @@ type DistributedRavenDBCache(options : IOptions<DistributedRavenDBCacheOptions>,
         SlidingExpiration  = 0
         }
       |> addExpiration
-    match getCacheEntry key sess with
+    match getCacheEntry key sess ct with
     | Some _ ->
         sess.Advanced.Patch (entry.Id, (fun e -> e.Payload),           entry.Payload)
         sess.Advanced.Patch (entry.Id, (fun e -> e.ExpiresAt),         entry.ExpiresAt)
         sess.Advanced.Patch (entry.Id, (fun e -> e.SlidingExpiration), entry.SlidingExpiration)
-    | None -> sess.StoreAsync (entry, entry.Id) |> await'
-    saveChanges sess
+    | None -> sess.StoreAsync (entry, entry.Id, ct) |> await'
+    saveChanges sess ct
 
   interface IDistributedCache with
-    member __.Get key = getEntry key
-    member __.GetAsync (key, _) = getEntry key |> Task.FromResult
-    member __.Refresh key = refreshEntry key
-    member __.RefreshAsync (key, _) = refreshEntry key |> Task.FromResult :> Task
-    member __.Remove key = removeEntry  key
-    member __.RemoveAsync (key, _) = removeEntry  key |> Task.FromResult :> Task
-    member __.Set (key, value, options) = setEntry key value options
-    member __.SetAsync (key, value, options, _) = setEntry key value options |> Task.FromResult :> Task
+    member __.Get key = getEntry key CancellationToken.None
+    member __.GetAsync (key, ct) = getEntry key ct |> Task.FromResult
+    member __.Refresh key = refreshEntry key CancellationToken.None
+    member __.RefreshAsync (key, ct) = refreshEntry key ct |> Task.FromResult :> Task
+    member __.Remove key = removeEntry  key CancellationToken.None
+    member __.RemoveAsync (key, ct) = removeEntry key ct |> Task.FromResult :> Task
+    member __.Set (key, value, options) = setEntry key value options CancellationToken.None
+    member __.SetAsync (key, value, options, ct) = setEntry key value options ct |> Task.FromResult :> Task

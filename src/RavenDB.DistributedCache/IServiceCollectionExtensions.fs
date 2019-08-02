@@ -1,4 +1,4 @@
-/// Extensions for <see cref="IServiceCollection" /> to add the RethinkDB cache
+/// Extensions for <see cref="IServiceCollection" /> to add the RavenDB cache
 [<AutoOpen>]
 [<System.Runtime.CompilerServices.Extension>]
 module RavenDB.DistributedCache.IServiceCollectionExtensions
@@ -17,7 +17,7 @@ type IServiceCollection with
     this
 
 /// <summary>
-/// Add RethinkDB options to the services collection
+/// Add RavenDB options to the services collection
 /// </summary>
 /// <param name="options">An action to set the options for the cache</param>
 /// <returns>The given <see cref="IServiceCollection" /> for further manipulation</returns>
