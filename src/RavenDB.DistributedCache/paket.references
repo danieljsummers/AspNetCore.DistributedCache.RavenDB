@@ -1,0 +1,4 @@
+Microsoft.Extensions.Caching.Abstractions
+Microsoft.Extensions.Logging
+Microsoft.Extensions.Options
+RavenDb.Client
