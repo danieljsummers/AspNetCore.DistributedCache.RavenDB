@@ -2,6 +2,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
+    <VersionPrefix>0.9.0</VersionPrefix>
+    <VersionSuffix>a</VersionSuffix>
+    <PackageReleaseNotes>Initial release of RavenDB ASP.NET Core Distributed Cache provider</PackageReleaseNotes>
+    <Authors>danieljsummers</Authors>
+    <Company>Bit Badger Solutions</Company>
+    <PackageProjectUrl>https://github.com/danieljsummers/RavenDB.DistributedCache</PackageProjectUrl>
+    <PackageIconUrl>https://github.com/danieljsummers/RavenDB.DistributedCache/raw/master/icons/persistable.png</PackageIconUrl>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <RepositoryUrl>https://github.com/danieljsummers/RavenDB.DistributedCache</RepositoryUrl>
+    <RepositoryType>Git</RepositoryType>
+    <Copyright>MIT License</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>RavenDB Cache ASP.NET Session</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="DistributedRavenDBCacheOptions.fs" />
