@@ -1,3 +1,4 @@
+FSharp.Core
 Microsoft.Extensions.Caching.Abstractions
 Microsoft.Extensions.Logging
 Microsoft.Extensions.Options

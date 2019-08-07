@@ -10,18 +10,18 @@ open Raven.Client.Documents.Operations.Indexes
 open Raven.Client.Documents.Session
 open System
 open System.Collections.Generic
-open System.Text
 open System.Threading
 open System.Threading.Tasks
 
 /// Persistence object for a cache entry
+[<CLIMutable>]
 type CacheEntry =
   { /// The Id for the cache entry
     Id                : string
     /// The payload for the cache entry (as a UTF-8 string)
     Payload           : string
     /// The ticks at which this entry expires
-    ExpiresAt         : int64
+    ExpiresAt         : DateTime
     /// The number of seconds in the sliding expiration
     SlidingExpiration : int
     }
@@ -56,15 +56,14 @@ type DistributedRavenDBCache(options : IOptions<DistributedRavenDBCacheOptions>,
   let collName =
     match isNull opts.Collection || opts.Collection = "" with true -> "CacheEntries" | false -> opts.Collection
 
-  /// The name of the index for the ExpiredAt field
-  let expIndex = sprintf "%s/ByExpiredAt" collName
+  /// The name of the index for the ExpiresAt field
+  let expIndex = sprintf "%s/ByExpiresAt" collName
 
-  /// Create a collection Id from the given key
-  let collId = sprintf "%s/%s" collName
+  /// Create a document Id from the given key
+  let docId = sprintf "%s/%s" collName
 
   /// Save changes if any have occurred
-  let saveChanges (sess : IAsyncDocumentSession) ct =
-    match sess.Advanced.HasChanges with true -> sess.SaveChangesAsync ct |> await' | false -> ()
+  let saveChanges (sess : IAsyncDocumentSession) ct = sess.SaveChangesAsync ct |> await'
 
   /// Debug message
   let dbug text =
@@ -79,7 +78,7 @@ type DistributedRavenDBCache(options : IOptions<DistributedRavenDBCacheOptions>,
     | _ ->
         dbug <| fun () -> "|> Ensuring proper RavenDB cache environment"
         // Index
-        dbug <| fun () -> sprintf "   Creating index %s.ExpiresAt..." opts.Collection
+        dbug <| fun () -> sprintf "   Creating index %s.ExpiresAt..." collName
         PutIndexesOperation (
           IndexDefinition
             (Name = expIndex,
@@ -91,28 +90,34 @@ type DistributedRavenDBCache(options : IOptions<DistributedRavenDBCacheOptions>,
 
   /// Remove entries from the cache that are expired
   let purgeExpired (sess : IAsyncDocumentSession) ct =
-    let tix = DateTime.UtcNow.Ticks - 1L
-    dbug <| fun () -> sprintf "Purging expired entries (<= %i)" tix
-    sess.Query<CacheEntry>(expIndex)
-      .Where(fun e -> e.ExpiresAt < tix)
-      .ToListAsync ct
-    |> await
-    |> Seq.iter (fun e -> sess.Delete e.Id)
+    let now = DateTime.Now
+    dbug <| fun () -> sprintf "Purging expired entries (<= %s)" <| now.ToString "o"
+    let expired =
+      sess.Query<CacheEntry>(expIndex).Where(fun e -> e.ExpiresAt < now).ToListAsync ct
+      |> await
+      |> Seq.map (fun e -> e.Id)
+      |> List.ofSeq
+    match List.length expired with
+    | 0 -> ()
+    | _ ->
+        expired
+        |> List.iter (fun docId ->
+            dbug <| fun () -> sprintf "Deleting expired session %s" docId
+            sess.Delete docId)
+        saveChanges sess ct
   
-  /// Calculate ticks from now for the given number of seconds
-  let ticksFromNow seconds = DateTime.UtcNow.Ticks + int64 (seconds * 10000000)
-
   /// Get the cache entry specified
   let getCacheEntry (key : string) (sess : IAsyncDocumentSession) ct =
-    let entryId = collId key
-    let entry = sess.LoadAsync<CacheEntry> (entryId, ct) |> (await >> box >> Option.ofObj)
-    match entry with Some e -> (unbox<CacheEntry> >> Some) e | None -> None
+    sess.LoadAsync<CacheEntry> (docId key, ct) |> (await >> box >> Option.ofObj)
+    |> function Some e -> (unbox<CacheEntry> >> Some) e | None -> None
 
   /// Refresh (update expiration based on sliding expiration) the cache entry specified
-  let refreshCacheEntry (entry : CacheEntry) (sess : IAsyncDocumentSession) =
+  let refreshCacheEntry (entry : CacheEntry) (sess : IAsyncDocumentSession) ct =
     match entry.SlidingExpiration with
     | 0 -> ()
-    | seconds -> sess.Advanced.Patch (entry.Id, (fun e -> e.ExpiresAt), ticksFromNow seconds)
+    | seconds ->
+        sess.Advanced.Patch (entry.Id, (fun e -> e.ExpiresAt), (float >> DateTime.Now.AddSeconds) seconds)
+        saveChanges sess ct
 
   /// Get the payload for the cache entry
   let getEntry key ct =
@@ -122,28 +127,26 @@ type DistributedRavenDBCache(options : IOptions<DistributedRavenDBCacheOptions>,
     match getCacheEntry key sess ct with
     | Some e ->
         dbug <| fun () -> sprintf "Cache key %s found" key
-        refreshCacheEntry e sess
-        saveChanges sess ct
-        UTF8Encoding.UTF8.GetBytes e.Payload
+        refreshCacheEntry e sess ct
+        Convert.FromBase64String e.Payload
     | None ->
         dbug <| fun () -> sprintf "Cache key %s not found" key
-        saveChanges sess ct
         null
   
   /// Update the sliding expiration for a cache entry
   let refreshEntry key ct =
     checkEnvironment ()
     use sess = newSession ()
-    match getCacheEntry key sess ct with Some e ->  refreshCacheEntry e sess | None -> ()
+    match getCacheEntry key sess ct with Some e ->  refreshCacheEntry e sess ct | None -> ()
     purgeExpired sess ct
-    saveChanges sess ct
   
   /// Remove the specified cache entry
   let removeEntry (key : string) ct =
     checkEnvironment ()
     use sess = newSession ()
-    (collId >> sess.Delete) key
     purgeExpired sess ct
+    dbug <| fun () -> sprintf "Removing key %s" key
+    (docId >> sess.Delete) key
     saveChanges sess ct
   
   /// Set the value of a cache entry
@@ -153,18 +156,18 @@ type DistributedRavenDBCache(options : IOptions<DistributedRavenDBCacheOptions>,
     purgeExpired sess ct
     let addExpiration entry = 
       match true with
-      | _ when options.SlidingExpiration.HasValue ->
-          { entry with ExpiresAt          = ticksFromNow options.SlidingExpiration.Value.Seconds
-                       SlidingExpiration  = options.SlidingExpiration.Value.Seconds }
       | _ when options.AbsoluteExpiration.HasValue ->
-          { entry with ExpiresAt = options.AbsoluteExpiration.Value.UtcTicks }
+          { entry with ExpiresAt = options.AbsoluteExpiration.Value.DateTime }
       | _ when options.AbsoluteExpirationRelativeToNow.HasValue ->
-          { entry with ExpiresAt = ticksFromNow options.AbsoluteExpirationRelativeToNow.Value.Seconds }
+          { entry with ExpiresAt = DateTime.Now + options.AbsoluteExpirationRelativeToNow.Value }
+      | _ when options.SlidingExpiration.HasValue ->
+          { entry with ExpiresAt         = DateTime.Now + options.SlidingExpiration.Value
+                       SlidingExpiration = options.SlidingExpiration.Value.Seconds }
       | _ -> entry
     let entry =
-      { Id                 = collId key
-        Payload            = UTF8Encoding.UTF8.GetString payload
-        ExpiresAt          = Int64.MaxValue
+      { Id                 = docId key
+        Payload            = Convert.ToBase64String payload
+        ExpiresAt          = DateTime.MaxValue
         SlidingExpiration  = 0
         }
       |> addExpiration
