@@ -1,4 +1,4 @@
-﻿namespace RavenDB.DistributedCache
+﻿namespace AspNetCore.DistributedCache.RavenDB
 
 open Microsoft.Extensions.Caching.Distributed
 open Microsoft.Extensions.Logging
@@ -25,6 +25,26 @@ type CacheEntry =
     /// The number of seconds in the sliding expiration
     SlidingExpiration : int
     }
+
+
+/// Options to use to configure the RavenDB cache
+[<AllowNullLiteral>]
+type DistributedRavenDBCacheOptions() =
+  /// The RavenDB document store to use for caching operations
+  member val Store : IDocumentStore = null with get, set
+
+  /// The RavenDB database to use (leave blank for document store default)
+  member val Database = "" with get, set
+
+  /// The RavenDB collection name to use for cache entries (defaults to "CacheEntries")
+  member val Collection = "" with get, set
+
+  /// Whether this configuration is valid
+  member this.IsValid () =
+    seq {
+      match this.Store with null -> yield "Connection cannot be null" | _ -> ()
+      }
+
 
 /// IDistributedCache implementation utilizing RavenDB
 [<AllowNullLiteral>]
@@ -188,3 +208,32 @@ type DistributedRavenDBCache(options : IOptions<DistributedRavenDBCacheOptions>,
     member __.RemoveAsync (key, ct) = removeEntry key ct |> Task.FromResult :> Task
     member __.Set (key, value, options) = setEntry key value options CancellationToken.None
     member __.SetAsync (key, value, options, ct) = setEntry key value options ct |> Task.FromResult :> Task
+
+
+open Microsoft.Extensions.DependencyInjection
+open System.Runtime.CompilerServices
+
+/// <summary>
+/// Extensions for <see cref="IServiceCollection" /> to add the RavenDB cache
+/// </summary>
+[<AutoOpen; Extension>]
+module IServiceCollectionExtensions =
+
+
+  type IServiceCollection with
+
+    member this.AddDistributedRavenDBCache (options : Action<DistributedRavenDBCacheOptions>) =
+      match options with null -> nullArg "options" | _ -> ()
+      this.AddOptions()
+        .Configure(options)
+        .Add (ServiceDescriptor.Transient<IDistributedCache, DistributedRavenDBCache>())
+      this
+
+  /// <summary>
+  /// Add RavenDB options to the services collection
+  /// </summary>
+  /// <param name="options">An action to set the options for the cache</param>
+  /// <returns>The given <see cref="IServiceCollection" /> for further manipulation</returns>
+  [<Extension>]
+  let AddDistributedRavenDBCache (this : IServiceCollection, options : Action<DistributedRavenDBCacheOptions>) =
+    this.AddDistributedRavenDBCache options

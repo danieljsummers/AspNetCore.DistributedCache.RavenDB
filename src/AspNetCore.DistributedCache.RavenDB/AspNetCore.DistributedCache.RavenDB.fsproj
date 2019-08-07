@@ -6,18 +6,16 @@
     <PackageReleaseNotes>Initial release of RavenDB ASP.NET Core Distributed Cache provider</PackageReleaseNotes>
     <Authors>danieljsummers</Authors>
     <Company>Bit Badger Solutions</Company>
-    <PackageProjectUrl>https://github.com/danieljsummers/RavenDB.DistributedCache</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/danieljsummers/AspNetCore.DistributedCache.RavenDB</PackageProjectUrl>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
-    <RepositoryUrl>https://github.com/danieljsummers/RavenDB.DistributedCache</RepositoryUrl>
+    <RepositoryUrl>https://github.com/danieljsummers/AspNetCore.DistributedCache.RavenDB</RepositoryUrl>
     <RepositoryType>Git</RepositoryType>
     <Copyright>MIT License</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>RavenDB Cache ASP.NET Session</PackageTags>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="DistributedRavenDBCacheOptions.fs" />
     <Compile Include="DistributedRavenDBCache.fs" />
-    <Compile Include="IServiceCollectionExtensions.fs" />
   </ItemGroup>
   <Import Project="..\.paket\Paket.Restore.targets" />
 </Project>
