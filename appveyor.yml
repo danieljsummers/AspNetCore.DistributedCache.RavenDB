@@ -2,9 +2,9 @@ os: Visual Studio 2019
 
 build_script:
  - cmd: dotnet tool install --global paket
- - cmd: dotnet restore src\RavenDB.DistributedCache\RavenDB.DistributedCache.fsproj
- - cmd: dotnet build -v n src\RavenDB.DistributedCache\RavenDB.DistributedCache.fsproj
- - cmd: dotnet pack src\RavenDB.DistributedCache\RavenDB.DistributedCache.fsproj -o %CD%\artifacts\nupkg
+ - cmd: dotnet restore src\AspNetCore.DistributedCache.RavenDB\AspNetCore.DistributedCache.RavenDB.fsproj
+ - cmd: dotnet build -v n src\AspNetCore.DistributedCache.RavenDB\AspNetCore.DistributedCache.RavenDB.fsproj
+ - cmd: dotnet pack src\AspNetCore.DistributedCache.RavenDB\AspNetCore.DistributedCache.RavenDB.fsproj -o %CD%\artifacts\nupkg
  
 artifacts:
  - path: artifacts\nupkg\*.nupkg 
