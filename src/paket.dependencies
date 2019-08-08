@@ -1,8 +1,7 @@
 source https://www.nuget.org/api/v2
-source https://ci.appveyor.com/nuget/ravendb-distributedcache-487miypo9cfy
 
+nuget AspNetCore.DistributedCache.RavenDB
 nuget FSharp.Core
 nuget Microsoft.AspNetCore.App
 nuget Microsoft.AspNetCore.Razor.Design
 nuget RavenDb.Client
-nuget RavenDB.DistributedCache prerelease

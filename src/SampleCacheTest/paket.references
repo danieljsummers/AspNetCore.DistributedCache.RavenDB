@@ -1,4 +1,4 @@
+AspNetCore.DistributedCache.RavenDB
 Microsoft.AspNetCore.App
 Microsoft.AspNetCore.Razor.Design
 RavenDb.Client
-RavenDB.DistributedCache
